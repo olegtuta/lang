@@ -1,43 +1,7 @@
-use lang_core::{LangError, LangResult};
+use crate::error::{SyntaxError, SyntaxResult};
+use crate::token::{Token, TokenKind};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenKind {
-    LBracket,
-    RBracket,
-    LParen,
-    RParen,
-    Comma,
-    Dollar,
-    Equals,
-    Semicolon,
-    Plus,
-    Minus,
-    Star,
-    Slash,
-    Percent,
-    Bang,
-    DoubleAmpersand,
-    DoublePipe,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    EqualEqual,
-    BangEqual,
-    Identifier(String),
-    IntegerLiteral(i64),
-    FloatLiteral(f64),
-    StringLiteral(String),
-    BoolLiteral(bool),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub position: usize,
-}
-
-pub fn lex(input: &str) -> LangResult<Vec<Token>> {
+pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
     let mut chars = input.char_indices().peekable();
     let mut tokens = Vec::new();
 
@@ -171,7 +135,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                         position: idx,
                     }
                 } else {
-                    return Err(LangError::parse(format!(
+                    return Err(SyntaxError::new(format!(
                         "unexpected character `&` at position {idx}; did you mean `&&`?"
                     )));
                 }
@@ -185,7 +149,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                         position: idx,
                     }
                 } else {
-                    return Err(LangError::parse(format!(
+                    return Err(SyntaxError::new(format!(
                         "unexpected character `|` at position {idx}; did you mean `||`?"
                     )));
                 }
@@ -240,7 +204,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                                     other => value.push(other),
                                 }
                             } else {
-                                return Err(LangError::parse(format!(
+                                return Err(SyntaxError::new(format!(
                                     "unterminated escape sequence starting at position {next_idx}"
                                 )));
                             }
@@ -249,7 +213,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                     }
                 }
                 if !terminated {
-                    return Err(LangError::parse(format!(
+                    return Err(SyntaxError::new(format!(
                         "unterminated string literal starting at position {idx}"
                     )));
                 }
@@ -276,13 +240,13 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                     .unwrap_or_else(|| input.len());
                 let literal = &input[idx..slice_end];
                 if literal.ends_with('.') {
-                    return Err(LangError::parse(format!(
+                    return Err(SyntaxError::new(format!(
                         "invalid float literal `{literal}` at position {idx}"
                     )));
                 }
                 if has_dot {
                     let value = literal.parse::<f64>().map_err(|err| {
-                        LangError::parse(format!(
+                        SyntaxError::new(format!(
                             "failed to parse float literal `{literal}` at position {idx}: {err}"
                         ))
                     })?;
@@ -292,7 +256,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                     }
                 } else {
                     let value = literal.parse::<i64>().map_err(|err| {
-                        LangError::parse(format!(
+                        SyntaxError::new(format!(
                             "failed to parse integer literal `{literal}` at position {idx}: {err}"
                         ))
                     })?;
@@ -327,7 +291,7 @@ pub fn lex(input: &str) -> LangResult<Vec<Token>> {
                 }
             }
             _ => {
-                return Err(LangError::parse(format!(
+                return Err(SyntaxError::new(format!(
                     "unexpected character `{}` at position {}",
                     ch, idx
                 )));

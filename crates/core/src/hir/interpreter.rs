@@ -1,21 +1,34 @@
-use lang_core::{LangError, LangResult, Value};
-use lang_syntax::ast::{Assignment, BinaryOp, Expr, Statement, UnaryOp, VarDeclaration};
+use lang_syntax::ast::{
+    Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+};
 
-use crate::Scope;
+use crate::diagnostics::{LangError, LangResult};
+use crate::resolve::Scope;
+use crate::types::{LangType, TypeRegistry, Value};
 
 pub struct Interpreter {
     scope: Scope,
+    registry: TypeRegistry,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        Self::with_registry(TypeRegistry::new())
+    }
+
+    pub fn with_registry(registry: TypeRegistry) -> Self {
         Self {
             scope: Scope::new(),
+            registry,
         }
     }
 
     pub fn scope(&self) -> &Scope {
         &self.scope
+    }
+
+    pub fn registry_mut(&mut self) -> &mut TypeRegistry {
+        &mut self.registry
     }
 
     pub fn execute(&mut self, statement: Statement) -> LangResult<Option<Value>> {
@@ -37,13 +50,14 @@ impl Interpreter {
 
     fn execute_var_declaration(&mut self, decl: VarDeclaration) -> LangResult<()> {
         let VarDeclaration { name, ty, value } = decl;
+        let lang_type = self.resolve_annotation(&ty)?;
         if let Some(expr) = value {
             let evaluated = self.evaluate_expr(&expr)?;
             self.scope
-                .declare_with_value(name, ty, evaluated)
+                .declare_with_value(name, lang_type.clone(), evaluated)
                 .map(|_| ())
         } else {
-            self.scope.declare(name, ty)
+            self.scope.declare(name, lang_type)
         }
     }
 
@@ -55,7 +69,7 @@ impl Interpreter {
 
     fn evaluate_expr(&mut self, expr: &Expr) -> LangResult<Value> {
         match expr {
-            Expr::Literal(value) => Ok(value.clone()),
+            Expr::Literal(literal) => self.literal_to_value(literal),
             Expr::Variable(name) => {
                 let binding = self.scope.get(name).ok_or_else(|| {
                     LangError::Runtime(format!("variable `{name}` is not defined"))
@@ -80,6 +94,23 @@ impl Interpreter {
                 self.evaluate_binary(*op, left_value, right_value)
             }
         }
+    }
+
+    fn resolve_annotation(&self, annotation: &TypeAnnotation) -> LangResult<LangType> {
+        let kind = self
+            .registry
+            .resolve(&annotation.name)
+            .ok_or_else(|| LangError::unknown_type(&annotation.name))?;
+        Ok(LangType::new(kind, annotation.mutable))
+    }
+
+    fn literal_to_value(&self, literal: &Literal) -> LangResult<Value> {
+        Ok(match literal {
+            Literal::Integer(v) => Value::Integer(*v),
+            Literal::Float(v) => Value::Float(*v),
+            Literal::Bool(v) => Value::Bool(*v),
+            Literal::Str(v) => Value::Str(v.clone()),
+        })
     }
 
     fn evaluate_unary(&self, op: UnaryOp, value: Value) -> LangResult<Value> {
@@ -237,12 +268,13 @@ impl Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use lang_core::{LangType, Value};
-    use lang_syntax::ast::{Assignment, BinaryOp, Expr, Statement, UnaryOp, VarDeclaration};
+    use lang_syntax::ast::{
+        Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+    };
 
     use super::Interpreter;
 
-    fn decl(name: &str, ty: LangType, value: Option<Expr>) -> Statement {
+    fn decl(name: &str, ty: TypeAnnotation, value: Option<Expr>) -> Statement {
         Statement::VarDeclaration(VarDeclaration::new(name.to_string(), ty, value))
     }
 
@@ -260,8 +292,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "value",
-                LangType::integer(),
-                Some(Expr::Literal(Value::from(5))),
+                TypeAnnotation::new("int".to_string(), false),
+                Some(Expr::Literal(Literal::Integer(5))),
             ))
             .unwrap();
         let result = interpreter
@@ -276,8 +308,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "counter",
-                LangType::integer().with_mutability(true),
-                Some(Expr::Literal(Value::from(1))),
+                TypeAnnotation::new("int".to_string(), true),
+                Some(Expr::Literal(Literal::Integer(1))),
             ))
             .unwrap();
         interpreter
@@ -286,7 +318,7 @@ mod tests {
                 Expr::Binary {
                     left: Box::new(Expr::Variable("counter".to_string())),
                     op: BinaryOp::Add,
-                    right: Box::new(Expr::Literal(Value::from(1))),
+                    right: Box::new(Expr::Literal(Literal::Integer(1))),
                 },
             ))
             .unwrap();
@@ -300,14 +332,14 @@ mod tests {
         interpreter
             .execute(decl(
                 "threshold",
-                LangType::float(),
-                Some(Expr::Literal(Value::from(2.4_f64))),
+                TypeAnnotation::new("float".to_string(), false),
+                Some(Expr::Literal(Literal::Float(2.4))),
             ))
             .unwrap();
         let expr = Expr::Binary {
-            left: Box::new(Expr::Literal(Value::from(5.0_f64))),
+            left: Box::new(Expr::Literal(Literal::Float(5.0))),
             op: BinaryOp::Divide,
-            right: Box::new(Expr::Literal(Value::from(2.0_f64))),
+            right: Box::new(Expr::Literal(Literal::Float(2.0))),
         };
         let comparison = Expr::Binary {
             left: Box::new(expr),
@@ -322,12 +354,12 @@ mod tests {
     fn logical_operations() {
         let mut interpreter = Interpreter::new();
         let condition = Expr::Binary {
-            left: Box::new(Expr::Literal(Value::from(true))),
+            left: Box::new(Expr::Literal(Literal::Bool(true))),
             op: BinaryOp::And,
             right: Box::new(Expr::Binary {
-                left: Box::new(Expr::Literal(Value::from(3))),
+                left: Box::new(Expr::Literal(Literal::Integer(3))),
                 op: BinaryOp::Less,
-                right: Box::new(Expr::Literal(Value::from(5))),
+                right: Box::new(Expr::Literal(Literal::Integer(5))),
             }),
         };
         let result = interpreter.execute(echo(condition)).unwrap();
@@ -339,7 +371,7 @@ mod tests {
         let mut interpreter = Interpreter::new();
         let expr = Expr::Unary {
             op: UnaryOp::Negate,
-            expr: Box::new(Expr::Literal(Value::from(5))),
+            expr: Box::new(Expr::Literal(Literal::Integer(5))),
         };
         let result = interpreter.execute(echo(expr)).unwrap();
         assert_eq!(result.unwrap().expect_integer().unwrap(), -5);
@@ -351,8 +383,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "greeting",
-                LangType::string().with_mutability(true),
-                Some(Expr::Literal(Value::from("hi"))),
+                TypeAnnotation::new("str".to_string(), true),
+                Some(Expr::Literal(Literal::Str("hi".to_string()))),
             ))
             .unwrap();
         interpreter
@@ -361,7 +393,7 @@ mod tests {
                 Expr::Binary {
                     left: Box::new(Expr::Variable("greeting".to_string())),
                     op: BinaryOp::Add,
-                    right: Box::new(Expr::Literal(Value::from(" there"))),
+                    right: Box::new(Expr::Literal(Literal::Str(" there".to_string()))),
                 },
             ))
             .unwrap();

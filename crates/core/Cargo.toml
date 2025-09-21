@@ -7,6 +7,5 @@ description = "Core definitions for the async parallel language"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-async-trait = { workspace = true }
+lang-syntax = { path = "../syntax" }
 thiserror = { workspace = true }
-futures = { workspace = true }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use lang_core::{LangError, LangResult, LangType, Value};
+use crate::diagnostics::{LangError, LangResult};
+use crate::types::{LangType, Value};
 
 #[derive(Debug, Clone)]
 pub struct BindingState {

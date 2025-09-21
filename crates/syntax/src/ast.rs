@@ -1,5 +1,3 @@
-use lang_core::{LangType, Value};
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     VarDeclaration(VarDeclaration),
@@ -8,14 +6,26 @@ pub enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TypeAnnotation {
+    pub name: String,
+    pub mutable: bool,
+}
+
+impl TypeAnnotation {
+    pub fn new(name: String, mutable: bool) -> Self {
+        Self { name, mutable }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclaration {
     pub name: String,
-    pub ty: LangType,
+    pub ty: TypeAnnotation,
     pub value: Option<Expr>,
 }
 
 impl VarDeclaration {
-    pub fn new(name: String, ty: LangType, value: Option<Expr>) -> Self {
+    pub fn new(name: String, ty: TypeAnnotation, value: Option<Expr>) -> Self {
         Self { name, ty, value }
     }
 }
@@ -33,8 +43,16 @@ impl Assignment {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    Str(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Value),
+    Literal(Literal),
     Variable(String),
     Unary {
         op: UnaryOp,

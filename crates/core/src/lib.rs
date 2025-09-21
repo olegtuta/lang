@@ -1,7 +1,11 @@
-pub mod data;
+pub mod codegen;
 pub mod diagnostics;
-pub mod task;
+pub mod hir;
+pub mod mir;
+pub mod resolve;
+pub mod types;
 
-pub use data::types::{LangType, PrimitiveType, TypeKind, TypeRegistry};
-pub use data::value::Value;
 pub use diagnostics::{LangError, LangResult};
+pub use hir::Interpreter;
+pub use resolve::{BindingState, Scope};
+pub use types::{LangType, PrimitiveType, TypeKind, TypeRegistry, Value};

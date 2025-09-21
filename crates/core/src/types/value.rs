@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::data::types::{LangType, PrimitiveType, TypeKind};
 use crate::diagnostics::{LangError, LangResult};
+
+use super::registry::{LangType, PrimitiveType, TypeKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

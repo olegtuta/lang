@@ -7,6 +7,7 @@ description = "CLI entry point for the async parallel language"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 lang-core = { path = "../core" }
-lang-runtime = { path = "../runtime" }
+lang-std = { path = "../std" }
 lang-syntax = { path = "../syntax" }

@@ -3,6 +3,7 @@ members = [
     "crates/cli",
     "crates/core",
     "crates/runtime",
+    "crates/std",
     "crates/syntax",
 ]
 resolver = "2"

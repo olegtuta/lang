@@ -7,7 +7,6 @@ description = "Runtime for executing the async parallel language"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-lang-core = { path = "../core" }
-lang-syntax = { path = "../syntax" }
-futures = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
