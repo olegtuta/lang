@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::diagnostics::{LangError, LangResult};
+use crate::types::registry::{PrimitiveType, TypeKind};
 use crate::types::{LangType, Value};
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,9 @@ impl BindingState {
 }
 
 fn ensure_compatible(expected: &LangType, value: &Value) -> LangResult<()> {
+    if matches!(expected.kind(), TypeKind::Primitive(PrimitiveType::Mixed)) {
+        return Ok(());
+    }
     let value_type = value.ty();
     if value_type.kind() != expected.kind() {
         return Err(LangError::Type(format!(

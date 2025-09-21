@@ -51,8 +51,24 @@ fn main() -> LangResult<()> {
 fn run_repl() -> LangResult<()> {
     let mut interpreter = Interpreter::new();
 
-    while let Some(input) = read_multiline_input("lang> ")? {
-        let trimmed = input.trim();
+    let mut line = String::new();
+    loop {
+        print!("lang> ");
+        io::stdout()
+            .flush()
+            .map_err(|err| LangError::Runtime(format!("failed to flush stdout: {err}")))?;
+
+        line.clear();
+        let bytes_read = io::stdin()
+            .read_line(&mut line)
+            .map_err(|err| LangError::Runtime(format!("failed to read line: {err}")))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let raw = line.trim_end_matches(['\r', '\n']);
+        let trimmed = raw.trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -61,7 +77,7 @@ fn run_repl() -> LangResult<()> {
             break;
         }
 
-        match parse_statement(&input) {
+        match parse_statement(trimmed) {
             Ok(statement) => match interpreter.execute(statement) {
                 Ok(Some(value)) => {
                     println!("{}", echo(&value));
@@ -78,42 +94,6 @@ fn run_repl() -> LangResult<()> {
     }
 
     Ok(())
-}
-
-fn read_multiline_input(prompt: &str) -> LangResult<Option<String>> {
-    let mut buffer = String::new();
-
-    loop {
-        let current_prompt = if buffer.is_empty() { prompt } else { "... " };
-        print!("{}", current_prompt);
-        io::stdout()
-            .flush()
-            .map_err(|err| LangError::Runtime(format!("failed to flush stdout: {err}")))?;
-
-        let mut line = String::new();
-        let bytes_read = io::stdin()
-            .read_line(&mut line)
-            .map_err(|err| LangError::Runtime(format!("failed to read line: {err}")))?;
-        if bytes_read == 0 {
-            if buffer.trim().is_empty() {
-                return Ok(None);
-            }
-            break;
-        }
-
-        buffer.push_str(&line);
-
-        let trimmed = buffer.trim_end();
-        if trimmed == ":quit" || trimmed == ":exit" {
-            break;
-        }
-
-        if trimmed.ends_with(';') {
-            break;
-        }
-    }
-
-    Ok(Some(buffer))
 }
 
 fn check_file(path: &Path) -> LangResult<()> {
@@ -165,45 +145,12 @@ fn parse_program(source: &str) -> LangResult<Vec<Statement>> {
 
 fn split_statements(source: &str) -> LangResult<Vec<String>> {
     let mut statements = Vec::new();
-    let mut current = String::new();
-    let mut in_string = false;
-    let mut escaping = false;
-
-    for ch in source.chars() {
-        current.push(ch);
-        if in_string {
-            if escaping {
-                escaping = false;
-                continue;
-            }
-            if ch == '\\' {
-                escaping = true;
-                continue;
-            }
-            if ch == '"' {
-                in_string = false;
-            }
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
         }
-        if ch == '"' {
-            in_string = true;
-            continue;
-        }
-        if ch == ';' {
-            if !current.trim().is_empty() {
-                statements.push(current.clone());
-            }
-            current.clear();
-        }
+        statements.push(trimmed.to_string());
     }
-
-    if in_string {
-        return Err(LangError::parse("unterminated string literal"));
-    }
-
-    if !current.trim().is_empty() {
-        return Err(LangError::parse("expected ';' to terminate statement"));
-    }
-
     Ok(statements)
 }

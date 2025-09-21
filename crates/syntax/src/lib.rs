@@ -6,7 +6,8 @@ pub mod pretty;
 pub mod token;
 
 pub use ast::{
-    Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+    Assignment, AssignmentKind, BinaryOp, Expr, IncrementOp, Literal, Statement, TypeAnnotation,
+    UnaryOp, VarDeclaration,
 };
 pub use error::{SyntaxError, SyntaxResult};
 pub use parser::parse_statement;

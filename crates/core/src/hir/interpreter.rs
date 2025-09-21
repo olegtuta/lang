@@ -1,5 +1,6 @@
 use lang_syntax::ast::{
-    Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+    Assignment, AssignmentKind, BinaryOp, Expr, IncrementOp, Literal, Statement, TypeAnnotation,
+    UnaryOp, VarDeclaration,
 };
 
 use crate::diagnostics::{LangError, LangResult};
@@ -33,7 +34,7 @@ impl Interpreter {
 
     pub fn execute(&mut self, statement: Statement) -> LangResult<Option<Value>> {
         match statement {
-            Statement::VarDeclaration(decl) => {
+            Statement::Let(decl) => {
                 self.execute_var_declaration(decl)?;
                 Ok(None)
             }
@@ -55,10 +56,8 @@ impl Interpreter {
             mutable,
             value,
         } = decl;
-        let mut lang_type = self.resolve_annotation(&ty)?;
-        if mutable {
-            lang_type = lang_type.with_mutability(true);
-        }
+        let mut lang_type = self.resolve_annotation(ty.as_ref())?;
+        lang_type = lang_type.with_mutability(mutable);
         if let Some(expr) = value {
             let evaluated = self.evaluate_expr(&expr)?;
             self.scope
@@ -70,22 +69,55 @@ impl Interpreter {
     }
 
     fn execute_assignment(&mut self, assignment: Assignment) -> LangResult<()> {
-        let Assignment { name, value } = assignment;
-        let evaluated = self.evaluate_expr(&value)?;
-        self.scope.assign(&name, evaluated)
+        let Assignment { name, kind } = assignment;
+        match kind {
+            AssignmentKind::Simple(expr) => {
+                let evaluated = self.evaluate_expr(&expr)?;
+                self.scope.assign(&name, evaluated)
+            }
+            AssignmentKind::Compound { op, expr } => {
+                let rhs = self.evaluate_expr(&expr)?;
+                let lhs = self.current_value(&name)?;
+                let result = self.evaluate_binary(op, lhs, rhs)?;
+                self.scope.assign(&name, result)
+            }
+            AssignmentKind::Increment(op) => {
+                let current = self.current_value(&name)?;
+                let updated = match (op, current) {
+                    (IncrementOp::Increment, Value::Integer(v)) => Value::Integer(v + 1),
+                    (IncrementOp::Decrement, Value::Integer(v)) => Value::Integer(v - 1),
+                    (IncrementOp::Increment, Value::Float(v)) => Value::Float(v + 1.0),
+                    (IncrementOp::Decrement, Value::Float(v)) => Value::Float(v - 1.0),
+                    (_, _) => {
+                        return Err(LangError::Type(format!(
+                            "`{}` can only be applied to numeric values",
+                            match op {
+                                IncrementOp::Increment => "++",
+                                IncrementOp::Decrement => "--",
+                            }
+                        )));
+                    }
+                };
+                self.scope.assign(&name, updated)
+            }
+        }
+    }
+
+    fn current_value(&self, name: &str) -> LangResult<Value> {
+        let binding = self
+            .scope
+            .get(name)
+            .ok_or_else(|| LangError::Runtime(format!("variable `{name}` is not defined")))?;
+        binding
+            .value()
+            .cloned()
+            .ok_or_else(|| LangError::Runtime(format!("variable `{name}` is uninitialized")))
     }
 
     fn evaluate_expr(&mut self, expr: &Expr) -> LangResult<Value> {
         match expr {
             Expr::Literal(literal) => self.literal_to_value(literal),
-            Expr::Variable(name) => {
-                let binding = self.scope.get(name).ok_or_else(|| {
-                    LangError::Runtime(format!("variable `{name}` is not defined"))
-                })?;
-                binding.value().cloned().ok_or_else(|| {
-                    LangError::Runtime(format!("variable `{name}` is uninitialized"))
-                })
-            }
+            Expr::Variable(name) => self.current_value(name),
             Expr::Unary { op, expr } => {
                 let value = self.evaluate_expr(expr)?;
                 self.evaluate_unary(*op, value)
@@ -104,11 +136,17 @@ impl Interpreter {
         }
     }
 
-    fn resolve_annotation(&self, annotation: &TypeAnnotation) -> LangResult<LangType> {
-        let kind = self
-            .registry
-            .resolve(&annotation.name)
-            .ok_or_else(|| LangError::unknown_type(&annotation.name))?;
+    fn resolve_annotation(&self, annotation: Option<&TypeAnnotation>) -> LangResult<LangType> {
+        let kind = match annotation {
+            Some(annotation) => self
+                .registry
+                .resolve(&annotation.name)
+                .ok_or_else(|| LangError::unknown_type(&annotation.name))?,
+            None => self
+                .registry
+                .resolve("mixed")
+                .expect("mixed type must be registered"),
+        };
         Ok(LangType::new(kind, false))
     }
 
@@ -277,17 +315,41 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use lang_syntax::ast::{
-        Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+        Assignment, AssignmentKind, BinaryOp, Expr, IncrementOp, Literal, Statement,
+        TypeAnnotation, UnaryOp, VarDeclaration,
     };
 
     use super::Interpreter;
 
-    fn decl(name: &str, ty: TypeAnnotation, mutable: bool, value: Option<Expr>) -> Statement {
-        Statement::VarDeclaration(VarDeclaration::new(name.to_string(), ty, mutable, value))
+    fn decl(name: &str, ty: Option<&str>, mutable: bool, value: Option<Expr>) -> Statement {
+        let annotation = ty.map(|t| TypeAnnotation::new(t.to_string()));
+        Statement::Let(VarDeclaration::new(
+            name.to_string(),
+            annotation,
+            mutable,
+            value,
+        ))
     }
 
     fn assign(name: &str, expr: Expr) -> Statement {
-        Statement::Assignment(Assignment::new(name.to_string(), expr))
+        Statement::Assignment(Assignment::new(
+            name.to_string(),
+            AssignmentKind::Simple(expr),
+        ))
+    }
+
+    fn compound(name: &str, op: BinaryOp, expr: Expr) -> Statement {
+        Statement::Assignment(Assignment::new(
+            name.to_string(),
+            AssignmentKind::Compound { op, expr },
+        ))
+    }
+
+    fn increment(name: &str, op: IncrementOp) -> Statement {
+        Statement::Assignment(Assignment::new(
+            name.to_string(),
+            AssignmentKind::Increment(op),
+        ))
     }
 
     fn echo(expr: Expr) -> Statement {
@@ -300,7 +362,7 @@ mod tests {
         interpreter
             .execute(decl(
                 "value",
-                TypeAnnotation::new("int".to_string()),
+                Some("int"),
                 false,
                 Some(Expr::Literal(Literal::Integer(5))),
             ))
@@ -317,7 +379,7 @@ mod tests {
         interpreter
             .execute(decl(
                 "counter",
-                TypeAnnotation::new("int".to_string()),
+                Some("int"),
                 true,
                 Some(Expr::Literal(Literal::Integer(1))),
             ))
@@ -342,7 +404,7 @@ mod tests {
         interpreter
             .execute(decl(
                 "threshold",
-                TypeAnnotation::new("float".to_string()),
+                Some("float"),
                 false,
                 Some(Expr::Literal(Literal::Float(2.4))),
             ))
@@ -394,7 +456,7 @@ mod tests {
         interpreter
             .execute(decl(
                 "greeting",
-                TypeAnnotation::new("str".to_string()),
+                Some("str"),
                 true,
                 Some(Expr::Literal(Literal::Str("hi".to_string()))),
             ))
@@ -419,5 +481,85 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(value, "hi there");
+    }
+
+    #[test]
+    fn compound_assignment_updates_value() {
+        let mut interpreter = Interpreter::new();
+        interpreter
+            .execute(decl(
+                "total",
+                Some("int"),
+                true,
+                Some(Expr::Literal(Literal::Integer(10))),
+            ))
+            .unwrap();
+        interpreter
+            .execute(compound(
+                "total",
+                BinaryOp::Add,
+                Expr::Literal(Literal::Integer(5)),
+            ))
+            .unwrap();
+        let value = interpreter
+            .scope()
+            .get("total")
+            .unwrap()
+            .value()
+            .unwrap()
+            .expect_integer()
+            .unwrap();
+        assert_eq!(value, 15);
+    }
+
+    #[test]
+    fn increment_operator_increases_integer() {
+        let mut interpreter = Interpreter::new();
+        interpreter
+            .execute(decl(
+                "idx",
+                Some("int"),
+                true,
+                Some(Expr::Literal(Literal::Integer(3))),
+            ))
+            .unwrap();
+        interpreter
+            .execute(increment("idx", IncrementOp::Increment))
+            .unwrap();
+        let value = interpreter
+            .scope()
+            .get("idx")
+            .unwrap()
+            .value()
+            .unwrap()
+            .expect_integer()
+            .unwrap();
+        assert_eq!(value, 4);
+    }
+
+    #[test]
+    fn mixed_variable_accepts_multiple_types() {
+        let mut interpreter = Interpreter::new();
+        interpreter
+            .execute(decl("value", None, true, None))
+            .unwrap();
+        interpreter
+            .execute(assign("value", Expr::Literal(Literal::Integer(42))))
+            .unwrap();
+        interpreter
+            .execute(assign(
+                "value",
+                Expr::Literal(Literal::Str("done".to_string())),
+            ))
+            .unwrap();
+        let stored = interpreter
+            .scope()
+            .get("value")
+            .unwrap()
+            .value()
+            .unwrap()
+            .expect_string()
+            .unwrap();
+        assert_eq!(stored, "done");
     }
 }

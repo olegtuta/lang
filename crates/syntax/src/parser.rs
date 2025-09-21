@@ -1,5 +1,6 @@
 use crate::ast::{
-    Assignment, BinaryOp, Expr, Literal, Statement, TypeAnnotation, UnaryOp, VarDeclaration,
+    Assignment, AssignmentKind, BinaryOp, Expr, IncrementOp, Literal, Statement, TypeAnnotation,
+    UnaryOp, VarDeclaration,
 };
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::lexer::lex;
@@ -8,7 +9,9 @@ use crate::token::{Token, TokenKind};
 pub fn parse_statement(source: &str) -> SyntaxResult<Statement> {
     let tokens = lex(source)?;
     let mut parser = Parser::new(tokens);
+    parser.skip_newlines();
     let statement = parser.parse_statement()?;
+    parser.skip_newlines();
     if !parser.is_at_end() {
         return Err(SyntaxError::new("unexpected tokens after end of statement"));
     }
@@ -29,13 +32,11 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> SyntaxResult<Statement> {
-        if self.check_identifier("echo") {
-            self.advance();
+        if self.match_token(TokenKind::Echo) {
             let expr = self.parse_expression()?;
-            self.consume(TokenKind::Semicolon)?;
             Ok(Statement::Echo(expr))
-        } else if self.is_var_declaration_start() {
-            self.parse_var_declaration()
+        } else if self.match_token(TokenKind::Let) {
+            self.parse_let_declaration()
         } else if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
             self.parse_assignment()
         } else {
@@ -46,32 +47,100 @@ impl Parser {
         }
     }
 
-    fn parse_var_declaration(&mut self) -> SyntaxResult<Statement> {
-        let annotation = self.parse_type_annotation()?;
+    fn parse_let_declaration(&mut self) -> SyntaxResult<Statement> {
+        let mutable = if self.match_token(TokenKind::Fix) {
+            false
+        } else {
+            true
+        };
         let name = self.consume_identifier()?;
-        let mut mutable = false;
-        let mut value = None;
-
-        if self.match_token(TokenKind::ColonEquals) {
-            mutable = true;
-            if !self.check(&TokenKind::Semicolon) {
-                value = Some(self.parse_expression()?);
-            }
-        } else if self.match_token(TokenKind::Equals) {
-            value = Some(self.parse_expression()?);
-        }
-        self.consume(TokenKind::Semicolon)?;
-        Ok(Statement::VarDeclaration(VarDeclaration::new(
-            name, annotation, mutable, value,
+        let ty = if self.match_token(TokenKind::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        let value = if self.match_token(TokenKind::Equals) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        Ok(Statement::Let(VarDeclaration::new(
+            name, ty, mutable, value,
         )))
     }
 
     fn parse_assignment(&mut self) -> SyntaxResult<Statement> {
         let name = self.consume_identifier()?;
+        if self.match_token(TokenKind::PlusPlus) {
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Increment(IncrementOp::Increment),
+            )));
+        }
+        if self.match_token(TokenKind::MinusMinus) {
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Increment(IncrementOp::Decrement),
+            )));
+        }
+
+        if self.match_token(TokenKind::PlusEquals) {
+            let expr = self.parse_expression()?;
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Compound {
+                    op: BinaryOp::Add,
+                    expr,
+                },
+            )));
+        }
+        if self.match_token(TokenKind::MinusEquals) {
+            let expr = self.parse_expression()?;
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Compound {
+                    op: BinaryOp::Subtract,
+                    expr,
+                },
+            )));
+        }
+        if self.match_token(TokenKind::StarEquals) {
+            let expr = self.parse_expression()?;
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Compound {
+                    op: BinaryOp::Multiply,
+                    expr,
+                },
+            )));
+        }
+        if self.match_token(TokenKind::SlashEquals) {
+            let expr = self.parse_expression()?;
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Compound {
+                    op: BinaryOp::Divide,
+                    expr,
+                },
+            )));
+        }
+        if self.match_token(TokenKind::PercentEquals) {
+            let expr = self.parse_expression()?;
+            return Ok(Statement::Assignment(Assignment::new(
+                name,
+                AssignmentKind::Compound {
+                    op: BinaryOp::Modulo,
+                    expr,
+                },
+            )));
+        }
+
         self.consume(TokenKind::Equals)?;
-        let value = self.parse_expression()?;
-        self.consume(TokenKind::Semicolon)?;
-        Ok(Statement::Assignment(Assignment::new(name, value)))
+        let expr = self.parse_expression()?;
+        Ok(Statement::Assignment(Assignment::new(
+            name,
+            AssignmentKind::Simple(expr),
+        )))
     }
 
     fn parse_type_annotation(&mut self) -> SyntaxResult<TypeAnnotation> {
@@ -309,25 +378,14 @@ impl Parser {
         }
     }
 
-    fn check_identifier(&self, expected: &str) -> bool {
-        match self.peek_kind() {
-            Some(TokenKind::Identifier(name)) => name == expected,
-            _ => false,
-        }
-    }
-
-    fn is_var_declaration_start(&self) -> bool {
-        matches!(
-            (self.peek_kind(), self.peek_kind_at(1)),
-            (
-                Some(TokenKind::Identifier(_)),
-                Some(TokenKind::Identifier(_))
-            )
-        )
-    }
-
     fn check(&self, kind: &TokenKind) -> bool {
         matches!(self.peek_kind(), Some(token_kind) if token_kind == kind)
+    }
+
+    fn skip_newlines(&mut self) {
+        while matches!(self.peek_kind(), Some(TokenKind::Newline)) {
+            self.advance();
+        }
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -353,12 +411,6 @@ impl Parser {
         self.peek().map(|token| &token.kind)
     }
 
-    fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
-        self.tokens
-            .get(self.position + offset)
-            .map(|token| &token.kind)
-    }
-
     fn is_at_end(&self) -> bool {
         self.position >= self.tokens.len()
     }
@@ -370,15 +422,15 @@ mod tests {
 
     #[test]
     fn parse_echo_statement() {
-        let stmt = parse_statement("echo 1 + 2;").unwrap();
+        let stmt = parse_statement("echo 1 + 2").unwrap();
         assert!(matches!(stmt, Statement::Echo(_)));
     }
 
     #[test]
     fn parse_mutable_declaration() {
-        let stmt = parse_statement("int value := 10;").unwrap();
-        if let Statement::VarDeclaration(decl) = stmt {
-            assert_eq!(decl.ty.name, "int");
+        let stmt = parse_statement("let value: int = 10").unwrap();
+        if let Statement::Let(decl) = stmt {
+            assert_eq!(decl.ty.as_ref().unwrap().name, "int");
             assert!(decl.mutable);
         } else {
             panic!("expected var declaration");
@@ -387,11 +439,22 @@ mod tests {
 
     #[test]
     fn parse_immutable_declaration_without_initializer() {
-        let stmt = parse_statement("int count;").unwrap();
-        if let Statement::VarDeclaration(decl) = stmt {
-            assert_eq!(decl.ty.name, "int");
+        let stmt = parse_statement("let fix count: int").unwrap();
+        if let Statement::Let(decl) = stmt {
+            assert_eq!(decl.ty.as_ref().unwrap().name, "int");
             assert!(!decl.mutable);
             assert!(decl.value.is_none());
+        } else {
+            panic!("expected var declaration");
+        }
+    }
+
+    #[test]
+    fn parse_declaration_without_type_defaults_to_mixed() {
+        let stmt = parse_statement("let value").unwrap();
+        if let Statement::Let(decl) = stmt {
+            assert!(decl.ty.is_none());
+            assert!(decl.mutable);
         } else {
             panic!("expected var declaration");
         }

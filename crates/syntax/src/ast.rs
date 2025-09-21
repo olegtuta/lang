@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    VarDeclaration(VarDeclaration),
+    Let(VarDeclaration),
     Assignment(Assignment),
     Echo(Expr),
 }
@@ -19,13 +19,18 @@ impl TypeAnnotation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclaration {
     pub name: String,
-    pub ty: TypeAnnotation,
+    pub ty: Option<TypeAnnotation>,
     pub mutable: bool,
     pub value: Option<Expr>,
 }
 
 impl VarDeclaration {
-    pub fn new(name: String, ty: TypeAnnotation, mutable: bool, value: Option<Expr>) -> Self {
+    pub fn new(
+        name: String,
+        ty: Option<TypeAnnotation>,
+        mutable: bool,
+        value: Option<Expr>,
+    ) -> Self {
         Self {
             name,
             ty,
@@ -38,13 +43,20 @@ impl VarDeclaration {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Assignment {
     pub name: String,
-    pub value: Expr,
+    pub kind: AssignmentKind,
 }
 
 impl Assignment {
-    pub fn new(name: String, value: Expr) -> Self {
-        Self { name, value }
+    pub fn new(name: String, kind: AssignmentKind) -> Self {
+        Self { name, kind }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignmentKind {
+    Simple(Expr),
+    Compound { op: BinaryOp, expr: Expr },
+    Increment(IncrementOp),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,4 +103,10 @@ pub enum BinaryOp {
     GreaterEqual,
     And,
     Or,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncrementOp {
+    Increment,
+    Decrement,
 }

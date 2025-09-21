@@ -6,6 +6,27 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
     let mut tokens = Vec::new();
 
     while let Some((idx, ch)) = chars.peek().cloned() {
+        if ch == '\n' {
+            chars.next();
+            tokens.push(Token {
+                kind: TokenKind::Newline,
+                position: idx,
+            });
+            continue;
+        }
+
+        if ch == '\r' {
+            chars.next();
+            if matches!(chars.peek(), Some(&(_, '\n'))) {
+                chars.next();
+            }
+            tokens.push(Token {
+                kind: TokenKind::Newline,
+                position: idx,
+            });
+            continue;
+        }
+
         if ch.is_whitespace() {
             chars.next();
             continue;
@@ -26,46 +47,91 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                     position: idx,
                 }
             }
-            ';' => {
-                chars.next();
-                Token {
-                    kind: TokenKind::Semicolon,
-                    position: idx,
-                }
-            }
             '+' => {
                 chars.next();
-                Token {
-                    kind: TokenKind::Plus,
-                    position: idx,
+                if matches!(chars.peek(), Some(&(_, '+'))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::PlusPlus,
+                        position: idx,
+                    }
+                } else if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::PlusEquals,
+                        position: idx,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Plus,
+                        position: idx,
+                    }
                 }
             }
             '-' => {
                 chars.next();
-                Token {
-                    kind: TokenKind::Minus,
-                    position: idx,
+                if matches!(chars.peek(), Some(&(_, '-'))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::MinusMinus,
+                        position: idx,
+                    }
+                } else if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::MinusEquals,
+                        position: idx,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Minus,
+                        position: idx,
+                    }
                 }
             }
             '*' => {
                 chars.next();
-                Token {
-                    kind: TokenKind::Star,
-                    position: idx,
+                if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::StarEquals,
+                        position: idx,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Star,
+                        position: idx,
+                    }
                 }
             }
             '/' => {
                 chars.next();
-                Token {
-                    kind: TokenKind::Slash,
-                    position: idx,
+                if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::SlashEquals,
+                        position: idx,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Slash,
+                        position: idx,
+                    }
                 }
             }
             '%' => {
                 chars.next();
-                Token {
-                    kind: TokenKind::Percent,
-                    position: idx,
+                if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::PercentEquals,
+                        position: idx,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Percent,
+                        position: idx,
+                    }
                 }
             }
             '=' => {
@@ -85,16 +151,9 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
             }
             ':' => {
                 chars.next();
-                if matches!(chars.peek(), Some(&(_, '='))) {
-                    chars.next();
-                    Token {
-                        kind: TokenKind::ColonEquals,
-                        position: idx,
-                    }
-                } else {
-                    return Err(SyntaxError::new(format!(
-                        "unexpected character `:` at position {idx}; did you mean `:=`?"
-                    )));
+                Token {
+                    kind: TokenKind::Colon,
+                    position: idx,
                 }
             }
             '!' => {
@@ -269,6 +328,9 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                 let kind = match lowered.as_str() {
                     "true" => TokenKind::BoolLiteral(true),
                     "false" => TokenKind::BoolLiteral(false),
+                    "let" => TokenKind::Let,
+                    "fix" => TokenKind::Fix,
+                    "echo" => TokenKind::Echo,
                     _ => TokenKind::Identifier(ident),
                 };
                 Token {
@@ -303,19 +365,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lexes_mutable_variable_declaration() {
-        let tokens = lex("int value := 10;").unwrap();
-        assert_eq!(tokens.len(), 5);
-        assert!(matches!(tokens[0].kind, TokenKind::Identifier(ref name) if name == "int"));
-        assert!(matches!(tokens[1].kind, TokenKind::Identifier(ref name) if name == "value"));
-        assert!(matches!(tokens[2].kind, TokenKind::ColonEquals));
-        assert!(matches!(tokens[3].kind, TokenKind::IntegerLiteral(10)));
-        assert!(matches!(tokens[4].kind, TokenKind::Semicolon));
+    fn lexes_let_declaration() {
+        let tokens = lex("let fix value: int = 10").unwrap();
+        assert!(matches!(tokens[0].kind, TokenKind::Let));
+        assert!(matches!(tokens[1].kind, TokenKind::Fix));
+        assert!(matches!(tokens[2].kind, TokenKind::Identifier(ref name) if name == "value"));
+        assert!(matches!(tokens[3].kind, TokenKind::Colon));
+        assert!(matches!(tokens[4].kind, TokenKind::Identifier(ref name) if name == "int"));
+        assert!(matches!(tokens[5].kind, TokenKind::Equals));
+        assert!(matches!(tokens[6].kind, TokenKind::IntegerLiteral(10)));
     }
 
     #[test]
     fn lexes_expression_tokens() {
-        let tokens = lex("a = (b + 3.5) * -2 != 0 && true;").unwrap();
+        let tokens = lex("value += (other + 3.5) * -2 != 0 && true").unwrap();
         assert!(tokens
             .iter()
             .any(|t| matches!(t.kind, TokenKind::FloatLiteral(_))));
@@ -328,5 +391,8 @@ mod tests {
         assert!(tokens
             .iter()
             .any(|t| matches!(t.kind, TokenKind::BoolLiteral(true))));
+        assert!(tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::PlusEquals)));
     }
 }

@@ -7,6 +7,7 @@ pub enum PrimitiveType {
     Float,
     Bool,
     Str,
+    Mixed,
 }
 
 impl PrimitiveType {
@@ -16,6 +17,7 @@ impl PrimitiveType {
             PrimitiveType::Float => "float",
             PrimitiveType::Bool => "bool",
             PrimitiveType::Str => "str",
+            PrimitiveType::Mixed => "mixed",
         }
     }
 }
@@ -58,6 +60,10 @@ impl LangType {
 
     pub fn string() -> Self {
         Self::new(TypeKind::Primitive(PrimitiveType::Str), false)
+    }
+
+    pub fn mixed() -> Self {
+        Self::new(TypeKind::Primitive(PrimitiveType::Mixed), false)
     }
 
     pub fn kind(&self) -> &TypeKind {
@@ -110,6 +116,10 @@ impl TypeRegistry {
             PrimitiveType::Str.as_str(),
             TypeKind::Primitive(PrimitiveType::Str),
         );
+        registry.register_builtin(
+            PrimitiveType::Mixed.as_str(),
+            TypeKind::Primitive(PrimitiveType::Mixed),
+        );
         registry
     }
 
@@ -152,6 +162,13 @@ mod tests {
         let registry = TypeRegistry::new();
         let ty = registry.resolve("str");
         assert_eq!(ty, Some(TypeKind::Primitive(PrimitiveType::Str)));
+    }
+
+    #[test]
+    fn mixed_type_is_registered() {
+        let registry = TypeRegistry::new();
+        let ty = registry.resolve("mixed");
+        assert_eq!(ty, Some(TypeKind::Primitive(PrimitiveType::Mixed)));
     }
 
     #[test]
