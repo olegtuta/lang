@@ -11,3 +11,6 @@ clap = { version = "4", features = ["derive"] }
 lang-core = { path = "../core" }
 lang-std = { path = "../std" }
 lang-syntax = { path = "../syntax" }
+
+[dev-dependencies]
+assert_cmd = "2.0"
