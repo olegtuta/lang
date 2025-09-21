@@ -29,14 +29,14 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> SyntaxResult<Statement> {
-        if self.check(&TokenKind::LBracket) {
-            self.parse_var_declaration()
-        } else if self.check_identifier("echo") {
+        if self.check_identifier("echo") {
             self.advance();
             let expr = self.parse_expression()?;
             self.consume(TokenKind::Semicolon)?;
             Ok(Statement::Echo(expr))
-        } else if self.check(&TokenKind::Dollar) {
+        } else if self.is_var_declaration_start() {
+            self.parse_var_declaration()
+        } else if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
             self.parse_assignment()
         } else {
             Err(SyntaxError::new(format!(
@@ -47,10 +47,7 @@ impl Parser {
     }
 
     fn parse_var_declaration(&mut self) -> SyntaxResult<Statement> {
-        self.consume(TokenKind::LBracket)?;
         let annotation = self.parse_type_annotation()?;
-        self.consume(TokenKind::RBracket)?;
-        self.consume(TokenKind::Dollar)?;
         let name = self.consume_identifier()?;
         let value = if self.match_token(TokenKind::Equals) {
             Some(self.parse_expression()?)
@@ -64,7 +61,6 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> SyntaxResult<Statement> {
-        self.consume(TokenKind::Dollar)?;
         let name = self.consume_identifier()?;
         self.consume(TokenKind::Equals)?;
         let value = self.parse_expression()?;
@@ -73,35 +69,9 @@ impl Parser {
     }
 
     fn parse_type_annotation(&mut self) -> SyntaxResult<TypeAnnotation> {
-        let mut type_name: Option<String> = None;
-        let mut mutable = false;
-
-        loop {
-            let ident = self.consume_identifier()?;
-            let lowered = ident.to_lowercase();
-            if lowered == "mut" || lowered == "mute" {
-                if mutable {
-                    return Err(SyntaxError::new("mutability specified more than once"));
-                }
-                mutable = true;
-            } else if type_name.is_none() {
-                type_name = Some(lowered);
-            } else {
-                return Err(SyntaxError::new(format!(
-                    "duplicate type identifier `{ident}` in annotation"
-                )));
-            }
-
-            if self.match_token(TokenKind::Comma) {
-                continue;
-            }
-            break;
-        }
-
-        let name = type_name
-            .ok_or_else(|| SyntaxError::new("type annotation must include a base type"))?;
-
-        Ok(TypeAnnotation::new(name, mutable))
+        let type_name = self.consume_identifier()?;
+        let mutable = self.match_token(TokenKind::Bang);
+        Ok(TypeAnnotation::new(type_name.to_lowercase(), mutable))
     }
 
     fn parse_expression(&mut self) -> SyntaxResult<Expr> {
@@ -341,6 +311,19 @@ impl Parser {
         }
     }
 
+    fn is_var_declaration_start(&self) -> bool {
+        match self.peek_kind() {
+            Some(TokenKind::Identifier(_)) => match self.peek_kind_at(1) {
+                Some(TokenKind::Bang) => {
+                    matches!(self.peek_kind_at(2), Some(TokenKind::Identifier(_)))
+                }
+                Some(TokenKind::Identifier(_)) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     fn check(&self, kind: &TokenKind) -> bool {
         matches!(self.peek_kind(), Some(token_kind) if token_kind == kind)
     }
@@ -368,6 +351,12 @@ impl Parser {
         self.peek().map(|token| &token.kind)
     }
 
+    fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
+        self.tokens
+            .get(self.position + offset)
+            .map(|token| &token.kind)
+    }
+
     fn is_at_end(&self) -> bool {
         self.position >= self.tokens.len()
     }
@@ -385,10 +374,22 @@ mod tests {
 
     #[test]
     fn parse_mutable_declaration() {
-        let stmt = parse_statement("[int, mut] $value = 10;").unwrap();
+        let stmt = parse_statement("int! value = 10;").unwrap();
         if let Statement::VarDeclaration(decl) = stmt {
             assert_eq!(decl.ty.name, "int");
             assert!(decl.ty.mutable);
+        } else {
+            panic!("expected var declaration");
+        }
+    }
+
+    #[test]
+    fn parse_immutable_declaration_without_initializer() {
+        let stmt = parse_statement("int count;").unwrap();
+        if let Statement::VarDeclaration(decl) = stmt {
+            assert_eq!(decl.ty.name, "int");
+            assert!(!decl.ty.mutable);
+            assert!(decl.value.is_none());
         } else {
             panic!("expected var declaration");
         }

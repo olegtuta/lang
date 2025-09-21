@@ -1,11 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    LBracket,
-    RBracket,
     LParen,
     RParen,
-    Comma,
-    Dollar,
     Equals,
     Semicolon,
     Plus,

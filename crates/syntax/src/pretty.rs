@@ -9,15 +9,11 @@ pub fn format_statement(statement: &Statement) -> String {
 }
 
 fn format_var_declaration(decl: &VarDeclaration) -> String {
-    let mut parts = vec![decl.ty.name.clone()];
+    let mut header = decl.ty.name.clone();
     if decl.ty.mutable {
-        parts.push("mut".to_string());
+        header.push('!');
     }
-    let mut annotation = String::new();
-    annotation.push('[');
-    annotation.push_str(&parts.join(", "));
-    annotation.push(']');
-    let mut output = format!("{} ${}", annotation, decl.name);
+    let mut output = format!("{} {}", header, decl.name);
     if let Some(value) = &decl.value {
         output.push_str(&format!(" = {}", format_expr(value)));
     }
@@ -26,7 +22,7 @@ fn format_var_declaration(decl: &VarDeclaration) -> String {
 }
 
 fn format_assignment(assign: &Assignment) -> String {
-    format!("${} = {};", assign.name, format_expr(&assign.value))
+    format!("{} = {};", assign.name, format_expr(&assign.value))
 }
 
 fn format_expr(expr: &Expr) -> String {
@@ -93,6 +89,6 @@ mod tests {
             Some(Expr::Literal(Literal::Integer(1))),
         );
         let statement = Statement::VarDeclaration(decl);
-        assert_eq!(format_statement(&statement), "[int, mut] $count = 1;");
+        assert_eq!(format_statement(&statement), "int! count = 1;");
     }
 }

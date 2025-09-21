@@ -12,20 +12,6 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
         }
 
         let token = match ch {
-            '[' => {
-                chars.next();
-                Token {
-                    kind: TokenKind::LBracket,
-                    position: idx,
-                }
-            }
-            ']' => {
-                chars.next();
-                Token {
-                    kind: TokenKind::RBracket,
-                    position: idx,
-                }
-            }
             '(' => {
                 chars.next();
                 Token {
@@ -37,20 +23,6 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                 chars.next();
                 Token {
                     kind: TokenKind::RParen,
-                    position: idx,
-                }
-            }
-            ',' => {
-                chars.next();
-                Token {
-                    kind: TokenKind::Comma,
-                    position: idx,
-                }
-            }
-            '$' => {
-                chars.next();
-                Token {
-                    kind: TokenKind::Dollar,
                     position: idx,
                 }
             }
@@ -317,24 +289,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lexes_variable_declaration_with_string_and_bool() {
-        let tokens = lex("[int, mut] $value = 10;").unwrap();
-        assert_eq!(tokens.len(), 10);
-        assert!(matches!(tokens[0].kind, TokenKind::LBracket));
-        assert!(matches!(tokens[1].kind, TokenKind::Identifier(_)));
-        assert!(matches!(tokens[2].kind, TokenKind::Comma));
-        assert!(matches!(tokens[3].kind, TokenKind::Identifier(_)));
-        assert!(matches!(tokens[4].kind, TokenKind::RBracket));
-        assert!(matches!(tokens[5].kind, TokenKind::Dollar));
-        assert!(matches!(tokens[6].kind, TokenKind::Identifier(_)));
-        assert!(matches!(tokens[7].kind, TokenKind::Equals));
-        assert!(matches!(tokens[8].kind, TokenKind::IntegerLiteral(10)));
-        assert!(matches!(tokens[9].kind, TokenKind::Semicolon));
+    fn lexes_mutable_variable_declaration() {
+        let tokens = lex("int! value = 10;").unwrap();
+        assert_eq!(tokens.len(), 6);
+        assert!(matches!(tokens[0].kind, TokenKind::Identifier(ref name) if name == "int"));
+        assert!(matches!(tokens[1].kind, TokenKind::Bang));
+        assert!(matches!(tokens[2].kind, TokenKind::Identifier(ref name) if name == "value"));
+        assert!(matches!(tokens[3].kind, TokenKind::Equals));
+        assert!(matches!(tokens[4].kind, TokenKind::IntegerLiteral(10)));
+        assert!(matches!(tokens[5].kind, TokenKind::Semicolon));
     }
 
     #[test]
     fn lexes_expression_tokens() {
-        let tokens = lex("$a = ($b + 3.5) * -2 != 0 && true;").unwrap();
+        let tokens = lex("a = (b + 3.5) * -2 != 0 && true;").unwrap();
         assert!(tokens
             .iter()
             .any(|t| matches!(t.kind, TokenKind::FloatLiteral(_))));
