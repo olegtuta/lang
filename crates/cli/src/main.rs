@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 
 use lang_core::{LangError, LangResult, TypeRegistry};
-use lang_runtime::Scope;
-use lang_syntax::parse_variable_declaration;
+use lang_runtime::Interpreter;
+use lang_syntax::parse_statement;
 
 fn read_multiline_input(prompt: &str) -> LangResult<Option<String>> {
     let mut buffer = String::new();
@@ -42,9 +42,7 @@ fn read_multiline_input(prompt: &str) -> LangResult<Option<String>> {
 
 fn main() -> LangResult<()> {
     let registry = TypeRegistry::new();
-    let mut scope = Scope::new();
-
-    println!("Async Lang REPL. Enter variable declarations or type :quit to exit.");
+    let mut interpreter = Interpreter::new();
 
     while let Some(input) = read_multiline_input("lang> ")? {
         let trimmed = input.trim();
@@ -56,41 +54,21 @@ fn main() -> LangResult<()> {
             break;
         }
 
-        match parse_variable_declaration(&input, &registry) {
-            Ok(declaration) => {
-                let result = if let Some(value) = declaration.value.clone() {
-                    scope.declare_with_value(&declaration.name, declaration.ty.clone(), value)
-                } else {
-                    scope.declare(&declaration.name, declaration.ty.clone())
-                };
-
-                match result {
-                    Ok(()) => {
-                        println!(
-                            "Declared {} `{}`{}",
-                            declaration.ty,
-                            declaration.name,
-                            match scope
-                                .get(&declaration.name)
-                                .and_then(|binding| binding.value())
-                            {
-                                Some(value) => format!(" with initial value {value}"),
-                                None => String::new(),
-                            }
-                        );
-                    }
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                    }
+        match parse_statement(&input, &registry) {
+            Ok(statement) => match interpreter.execute(statement) {
+                Ok(Some(value)) => {
+                    println!("{value}");
                 }
-            }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("error: {err}");
+                }
+            },
             Err(err) => {
                 eprintln!("parse error: {err}");
             }
         }
     }
-
-    println!("Goodbye!");
 
     Ok(())
 }

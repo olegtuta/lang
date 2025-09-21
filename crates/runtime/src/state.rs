@@ -100,6 +100,14 @@ impl Scope {
     pub fn get_mut(&mut self, name: &str) -> Option<&mut BindingState> {
         self.bindings.get_mut(name)
     }
+
+    pub fn assign(&mut self, name: &str, value: Value) -> LangResult<()> {
+        let binding = self
+            .bindings
+            .get_mut(name)
+            .ok_or_else(|| LangError::Runtime(format!("variable `{name}` is not defined")))?;
+        binding.assign(value)
+    }
 }
 
 #[cfg(test)]
@@ -147,11 +155,7 @@ mod tests {
         scope
             .declare_with_value("counter", ty.clone(), Value::from(1))
             .unwrap();
-        scope
-            .get_mut("counter")
-            .unwrap()
-            .assign(Value::from(2))
-            .unwrap();
+        scope.assign("counter", Value::from(2)).unwrap();
         assert_eq!(
             scope
                 .get("counter")
@@ -163,5 +167,12 @@ mod tests {
             2
         );
         assert!(scope.get("counter").unwrap().ty().is_mutable());
+    }
+
+    #[test]
+    fn assigning_undefined_binding_fails() {
+        let mut scope = Scope::new();
+        let err = scope.assign("missing", Value::from(1)).unwrap_err();
+        assert!(format!("{}", err).contains("not defined"));
     }
 }
