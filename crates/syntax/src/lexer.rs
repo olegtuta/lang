@@ -83,6 +83,20 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                     }
                 }
             }
+            ':' => {
+                chars.next();
+                if matches!(chars.peek(), Some(&(_, '='))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::ColonEquals,
+                        position: idx,
+                    }
+                } else {
+                    return Err(SyntaxError::new(format!(
+                        "unexpected character `:` at position {idx}; did you mean `:=`?"
+                    )));
+                }
+            }
             '!' => {
                 chars.next();
                 if matches!(chars.peek(), Some(&(_, '='))) {
@@ -290,14 +304,13 @@ mod tests {
 
     #[test]
     fn lexes_mutable_variable_declaration() {
-        let tokens = lex("int! value = 10;").unwrap();
-        assert_eq!(tokens.len(), 6);
+        let tokens = lex("int value := 10;").unwrap();
+        assert_eq!(tokens.len(), 5);
         assert!(matches!(tokens[0].kind, TokenKind::Identifier(ref name) if name == "int"));
-        assert!(matches!(tokens[1].kind, TokenKind::Bang));
-        assert!(matches!(tokens[2].kind, TokenKind::Identifier(ref name) if name == "value"));
-        assert!(matches!(tokens[3].kind, TokenKind::Equals));
-        assert!(matches!(tokens[4].kind, TokenKind::IntegerLiteral(10)));
-        assert!(matches!(tokens[5].kind, TokenKind::Semicolon));
+        assert!(matches!(tokens[1].kind, TokenKind::Identifier(ref name) if name == "value"));
+        assert!(matches!(tokens[2].kind, TokenKind::ColonEquals));
+        assert!(matches!(tokens[3].kind, TokenKind::IntegerLiteral(10)));
+        assert!(matches!(tokens[4].kind, TokenKind::Semicolon));
     }
 
     #[test]

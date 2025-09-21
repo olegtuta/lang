@@ -49,14 +49,20 @@ impl Parser {
     fn parse_var_declaration(&mut self) -> SyntaxResult<Statement> {
         let annotation = self.parse_type_annotation()?;
         let name = self.consume_identifier()?;
-        let value = if self.match_token(TokenKind::Equals) {
-            Some(self.parse_expression()?)
-        } else {
-            None
-        };
+        let mut mutable = false;
+        let mut value = None;
+
+        if self.match_token(TokenKind::ColonEquals) {
+            mutable = true;
+            if !self.check(&TokenKind::Semicolon) {
+                value = Some(self.parse_expression()?);
+            }
+        } else if self.match_token(TokenKind::Equals) {
+            value = Some(self.parse_expression()?);
+        }
         self.consume(TokenKind::Semicolon)?;
         Ok(Statement::VarDeclaration(VarDeclaration::new(
-            name, annotation, value,
+            name, annotation, mutable, value,
         )))
     }
 
@@ -70,8 +76,7 @@ impl Parser {
 
     fn parse_type_annotation(&mut self) -> SyntaxResult<TypeAnnotation> {
         let type_name = self.consume_identifier()?;
-        let mutable = self.match_token(TokenKind::Bang);
-        Ok(TypeAnnotation::new(type_name.to_lowercase(), mutable))
+        Ok(TypeAnnotation::new(type_name.to_lowercase()))
     }
 
     fn parse_expression(&mut self) -> SyntaxResult<Expr> {
@@ -312,16 +317,13 @@ impl Parser {
     }
 
     fn is_var_declaration_start(&self) -> bool {
-        match self.peek_kind() {
-            Some(TokenKind::Identifier(_)) => match self.peek_kind_at(1) {
-                Some(TokenKind::Bang) => {
-                    matches!(self.peek_kind_at(2), Some(TokenKind::Identifier(_)))
-                }
-                Some(TokenKind::Identifier(_)) => true,
-                _ => false,
-            },
-            _ => false,
-        }
+        matches!(
+            (self.peek_kind(), self.peek_kind_at(1)),
+            (
+                Some(TokenKind::Identifier(_)),
+                Some(TokenKind::Identifier(_))
+            )
+        )
     }
 
     fn check(&self, kind: &TokenKind) -> bool {
@@ -374,10 +376,10 @@ mod tests {
 
     #[test]
     fn parse_mutable_declaration() {
-        let stmt = parse_statement("int! value = 10;").unwrap();
+        let stmt = parse_statement("int value := 10;").unwrap();
         if let Statement::VarDeclaration(decl) = stmt {
             assert_eq!(decl.ty.name, "int");
-            assert!(decl.ty.mutable);
+            assert!(decl.mutable);
         } else {
             panic!("expected var declaration");
         }
@@ -388,7 +390,7 @@ mod tests {
         let stmt = parse_statement("int count;").unwrap();
         if let Statement::VarDeclaration(decl) = stmt {
             assert_eq!(decl.ty.name, "int");
-            assert!(!decl.ty.mutable);
+            assert!(!decl.mutable);
             assert!(decl.value.is_none());
         } else {
             panic!("expected var declaration");

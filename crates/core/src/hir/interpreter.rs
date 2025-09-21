@@ -49,8 +49,16 @@ impl Interpreter {
     }
 
     fn execute_var_declaration(&mut self, decl: VarDeclaration) -> LangResult<()> {
-        let VarDeclaration { name, ty, value } = decl;
-        let lang_type = self.resolve_annotation(&ty)?;
+        let VarDeclaration {
+            name,
+            ty,
+            mutable,
+            value,
+        } = decl;
+        let mut lang_type = self.resolve_annotation(&ty)?;
+        if mutable {
+            lang_type = lang_type.with_mutability(true);
+        }
         if let Some(expr) = value {
             let evaluated = self.evaluate_expr(&expr)?;
             self.scope
@@ -101,7 +109,7 @@ impl Interpreter {
             .registry
             .resolve(&annotation.name)
             .ok_or_else(|| LangError::unknown_type(&annotation.name))?;
-        Ok(LangType::new(kind, annotation.mutable))
+        Ok(LangType::new(kind, false))
     }
 
     fn literal_to_value(&self, literal: &Literal) -> LangResult<Value> {
@@ -274,8 +282,8 @@ mod tests {
 
     use super::Interpreter;
 
-    fn decl(name: &str, ty: TypeAnnotation, value: Option<Expr>) -> Statement {
-        Statement::VarDeclaration(VarDeclaration::new(name.to_string(), ty, value))
+    fn decl(name: &str, ty: TypeAnnotation, mutable: bool, value: Option<Expr>) -> Statement {
+        Statement::VarDeclaration(VarDeclaration::new(name.to_string(), ty, mutable, value))
     }
 
     fn assign(name: &str, expr: Expr) -> Statement {
@@ -292,7 +300,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "value",
-                TypeAnnotation::new("int".to_string(), false),
+                TypeAnnotation::new("int".to_string()),
+                false,
                 Some(Expr::Literal(Literal::Integer(5))),
             ))
             .unwrap();
@@ -308,7 +317,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "counter",
-                TypeAnnotation::new("int".to_string(), true),
+                TypeAnnotation::new("int".to_string()),
+                true,
                 Some(Expr::Literal(Literal::Integer(1))),
             ))
             .unwrap();
@@ -332,7 +342,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "threshold",
-                TypeAnnotation::new("float".to_string(), false),
+                TypeAnnotation::new("float".to_string()),
+                false,
                 Some(Expr::Literal(Literal::Float(2.4))),
             ))
             .unwrap();
@@ -383,7 +394,8 @@ mod tests {
         interpreter
             .execute(decl(
                 "greeting",
-                TypeAnnotation::new("str".to_string(), true),
+                TypeAnnotation::new("str".to_string()),
+                true,
                 Some(Expr::Literal(Literal::Str("hi".to_string()))),
             ))
             .unwrap();

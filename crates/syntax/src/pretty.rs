@@ -9,15 +9,16 @@ pub fn format_statement(statement: &Statement) -> String {
 }
 
 fn format_var_declaration(decl: &VarDeclaration) -> String {
-    let mut header = decl.ty.name.clone();
-    if decl.ty.mutable {
-        header.push('!');
-    }
-    let mut output = format!("{} {}", header, decl.name);
-    if let Some(value) = &decl.value {
+    let mut output = format!("{} {}", decl.ty.name, decl.name);
+    if decl.mutable {
+        output.push_str(" :=");
+        if let Some(value) = &decl.value {
+            output.push_str(&format!(" {}", format_expr(value)));
+        }
+    } else if let Some(value) = &decl.value {
         output.push_str(&format!(" = {}", format_expr(value)));
     }
-    output.push_str(";");
+    output.push(';');
     output
 }
 
@@ -85,10 +86,11 @@ mod tests {
     fn formats_variable_declaration() {
         let decl = VarDeclaration::new(
             "count".to_string(),
-            TypeAnnotation::new("int".to_string(), true),
+            TypeAnnotation::new("int".to_string()),
+            true,
             Some(Expr::Literal(Literal::Integer(1))),
         );
         let statement = Statement::VarDeclaration(decl);
-        assert_eq!(format_statement(&statement), "int! count = 1;");
+        assert_eq!(format_statement(&statement), "int count := 1;");
     }
 }

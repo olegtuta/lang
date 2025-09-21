@@ -9,6 +9,14 @@ fn echoes_integer_arithmetic() {
 }
 
 #[test]
+fn reassigns_mutable_binding() {
+    let output = run_script(
+        "int total := 1;\ntotal = total + 4;\necho total;",
+    );
+    assert_eq!(output, vec!["5".to_string()]);
+}
+
+#[test]
 fn handles_float_operations() {
     let output = run_script(
         "float weight = 4.5;\necho weight / 2.0;",

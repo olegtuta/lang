@@ -8,12 +8,11 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAnnotation {
     pub name: String,
-    pub mutable: bool,
 }
 
 impl TypeAnnotation {
-    pub fn new(name: String, mutable: bool) -> Self {
-        Self { name, mutable }
+    pub fn new(name: String) -> Self {
+        Self { name }
     }
 }
 
@@ -21,12 +20,18 @@ impl TypeAnnotation {
 pub struct VarDeclaration {
     pub name: String,
     pub ty: TypeAnnotation,
+    pub mutable: bool,
     pub value: Option<Expr>,
 }
 
 impl VarDeclaration {
-    pub fn new(name: String, ty: TypeAnnotation, value: Option<Expr>) -> Self {
-        Self { name, ty, value }
+    pub fn new(name: String, ty: TypeAnnotation, mutable: bool, value: Option<Expr>) -> Self {
+        Self {
+            name,
+            ty,
+            mutable,
+            value,
+        }
     }
 }
 

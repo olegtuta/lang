@@ -3,6 +3,7 @@ pub enum TokenKind {
     LParen,
     RParen,
     Equals,
+    ColonEquals,
     Semicolon,
     Plus,
     Minus,
