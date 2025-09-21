@@ -10,5 +10,3 @@ license = "MIT OR Apache-2.0"
 lang-core = { path = "../core" }
 lang-runtime = { path = "../runtime" }
 lang-syntax = { path = "../syntax" }
-async-trait = { workspace = true }
-futures = { workspace = true }
