@@ -1,0 +1,10 @@
+[package]
+name = "lang-std"
+version = "0.1.0"
+edition = "2021"
+authors = ["Language Dev Team <dev@example.com>"]
+description = "Standard library for the async parallel language"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+lang-core = { path = "../core" }
