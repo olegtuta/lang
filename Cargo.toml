@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "crates/cli",
+    "crates/core",
+    "crates/runtime",
+    "crates/std",
+    "crates/syntax",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+authors = ["Language Dev Team <dev@example.com>"]
+
+[workspace.dependencies]
+async-trait = "0.1"
+thiserror = "1"
+futures = { version = "0.3", features = ["thread-pool"] }
+

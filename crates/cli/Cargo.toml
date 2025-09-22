@@ -1,0 +1,17 @@
+[package]
+name = "lang-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Language Dev Team <dev@example.com>"]
+description = "CLI entry point for the async parallel language"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+lang-core = { path = "../core" }
+lang-std = { path = "../std" }
+lang-syntax = { path = "../syntax" }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+tempfile = "3"
