@@ -25,12 +25,49 @@ impl PrimitiveType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeKind {
     Primitive(PrimitiveType),
+    Array(ArrayType),
 }
 
 impl fmt::Display for TypeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TypeKind::Primitive(p) => write!(f, "{}", p.as_str()),
+            TypeKind::Array(array) => write!(f, "{}", array),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ArrayType {
+    key: Box<TypeKind>,
+    value: Box<TypeKind>,
+}
+
+impl ArrayType {
+    pub fn new(key: TypeKind, value: TypeKind) -> Self {
+        Self {
+            key: Box::new(key),
+            value: Box::new(value),
+        }
+    }
+
+    pub fn key(&self) -> &TypeKind {
+        &self.key
+    }
+
+    pub fn value(&self) -> &TypeKind {
+        &self.value
+    }
+}
+
+impl fmt::Display for ArrayType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = self.key();
+        let value = self.value();
+        if matches!(key, TypeKind::Primitive(PrimitiveType::Mixed)) {
+            write!(f, "arr<{}>", value)
+        } else {
+            write!(f, "arr<{key}, {value}>")
         }
     }
 }
@@ -66,8 +103,29 @@ impl LangType {
         Self::new(TypeKind::Primitive(PrimitiveType::Mixed), false)
     }
 
+    pub fn array(value: TypeKind) -> Self {
+        Self::new(
+            TypeKind::Array(ArrayType::new(
+                TypeKind::Primitive(PrimitiveType::Mixed),
+                value,
+            )),
+            false,
+        )
+    }
+
+    pub fn array_with_key(key: TypeKind, value: TypeKind) -> Self {
+        Self::new(TypeKind::Array(ArrayType::new(key, value)), false)
+    }
+
     pub fn kind(&self) -> &TypeKind {
         &self.kind
+    }
+
+    pub fn as_array(&self) -> Option<&ArrayType> {
+        match &self.kind {
+            TypeKind::Array(array) => Some(array),
+            _ => None,
+        }
     }
 
     pub fn is_mutable(&self) -> bool {
@@ -120,6 +178,13 @@ impl TypeRegistry {
             PrimitiveType::Mixed.as_str(),
             TypeKind::Primitive(PrimitiveType::Mixed),
         );
+        registry.register_builtin(
+            "arr",
+            TypeKind::Array(ArrayType::new(
+                TypeKind::Primitive(PrimitiveType::Mixed),
+                TypeKind::Primitive(PrimitiveType::Mixed),
+            )),
+        );
         registry
     }
 
@@ -169,6 +234,25 @@ mod tests {
         let registry = TypeRegistry::new();
         let ty = registry.resolve("mixed");
         assert_eq!(ty, Some(TypeKind::Primitive(PrimitiveType::Mixed)));
+    }
+
+    #[test]
+    fn array_type_is_registered() {
+        let registry = TypeRegistry::new();
+        let ty = registry.resolve("arr");
+        match ty {
+            Some(TypeKind::Array(array)) => {
+                assert!(matches!(
+                    array.key(),
+                    TypeKind::Primitive(PrimitiveType::Mixed)
+                ));
+                assert!(matches!(
+                    array.value(),
+                    TypeKind::Primitive(PrimitiveType::Mixed)
+                ));
+            }
+            other => panic!("expected array type, got {other:?}"),
+        }
     }
 
     #[test]

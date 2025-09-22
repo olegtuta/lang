@@ -47,6 +47,41 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                     position: idx,
                 }
             }
+            '{' => {
+                chars.next();
+                Token {
+                    kind: TokenKind::LBrace,
+                    position: idx,
+                }
+            }
+            '}' => {
+                chars.next();
+                Token {
+                    kind: TokenKind::RBrace,
+                    position: idx,
+                }
+            }
+            '[' => {
+                chars.next();
+                Token {
+                    kind: TokenKind::LBracket,
+                    position: idx,
+                }
+            }
+            ']' => {
+                chars.next();
+                Token {
+                    kind: TokenKind::RBracket,
+                    position: idx,
+                }
+            }
+            ',' => {
+                chars.next();
+                Token {
+                    kind: TokenKind::Comma,
+                    position: idx,
+                }
+            }
             '+' => {
                 chars.next();
                 if matches!(chars.peek(), Some(&(_, '+'))) {
@@ -142,6 +177,12 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                         kind: TokenKind::EqualEqual,
                         position: idx,
                     }
+                } else if matches!(chars.peek(), Some(&(_, '>'))) {
+                    chars.next();
+                    Token {
+                        kind: TokenKind::Arrow,
+                        position: idx,
+                    }
                 } else {
                     Token {
                         kind: TokenKind::Equals,
@@ -229,44 +270,8 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                     }
                 }
             }
-            '"' => {
-                chars.next();
-                let mut value = String::new();
-                let mut terminated = false;
-                while let Some((next_idx, next_ch)) = chars.next() {
-                    match next_ch {
-                        '"' => {
-                            terminated = true;
-                            break;
-                        }
-                        '\\' => {
-                            if let Some((_, escaped)) = chars.next() {
-                                match escaped {
-                                    'n' => value.push('\n'),
-                                    't' => value.push('\t'),
-                                    '\\' => value.push('\\'),
-                                    '"' => value.push('"'),
-                                    other => value.push(other),
-                                }
-                            } else {
-                                return Err(SyntaxError::new(format!(
-                                    "unterminated escape sequence starting at position {next_idx}"
-                                )));
-                            }
-                        }
-                        other => value.push(other),
-                    }
-                }
-                if !terminated {
-                    return Err(SyntaxError::new(format!(
-                        "unterminated string literal starting at position {idx}"
-                    )));
-                }
-                Token {
-                    kind: TokenKind::StringLiteral(value),
-                    position: idx,
-                }
-            }
+            '"' => parse_string_literal(&mut chars, idx, '"')?,
+            '\'' => parse_string_literal(&mut chars, idx, '\'')?,
             ch if ch.is_ascii_digit() => {
                 let mut has_dot = false;
                 while let Some(&(_, next_ch)) = chars.peek() {
@@ -331,6 +336,11 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
                     "let" => TokenKind::Let,
                     "fix" => TokenKind::Fix,
                     "echo" => TokenKind::Echo,
+                    "if" => TokenKind::If,
+                    "else" => TokenKind::Else,
+                    "while" => TokenKind::While,
+                    "break" => TokenKind::Break,
+                    "continue" => TokenKind::Continue,
                     _ => TokenKind::Identifier(ident),
                 };
                 Token {
@@ -352,12 +362,56 @@ pub fn lex(input: &str) -> SyntaxResult<Vec<Token>> {
     Ok(tokens)
 }
 
+fn parse_string_literal(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    start_idx: usize,
+    terminator: char,
+) -> SyntaxResult<Token> {
+    chars.next();
+    let mut value = String::new();
+    let mut terminated = false;
+    while let Some((next_idx, next_ch)) = chars.next() {
+        match next_ch {
+            ch if ch == terminator => {
+                terminated = true;
+                break;
+            }
+            '\\' => {
+                if let Some((_, escaped)) = chars.next() {
+                    match escaped {
+                        'n' => value.push('\n'),
+                        't' => value.push('\t'),
+                        '\\' => value.push('\\'),
+                        '\'' if terminator == '\'' => value.push('\''),
+                        '"' if terminator == '"' => value.push('"'),
+                        other => value.push(other),
+                    }
+                } else {
+                    return Err(SyntaxError::new(format!(
+                        "unterminated escape sequence starting at position {next_idx}"
+                    )));
+                }
+            }
+            other => value.push(other),
+        }
+    }
+    if !terminated {
+        return Err(SyntaxError::new(format!(
+            "unterminated string literal starting at position {start_idx}"
+        )));
+    }
+    Ok(Token {
+        kind: TokenKind::StringLiteral(value),
+        position: start_idx,
+    })
+}
+
 fn is_identifier_start(ch: char) -> bool {
-    ch.is_ascii_alphabetic() || ch == '_'
+    ch.is_ascii_alphabetic() || ch == '_' || ch == '$'
 }
 
 fn is_identifier_part(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 
 use lang_core::{Interpreter, LangError, LangResult};
 use lang_std::echo;
-use lang_syntax::{format_statement, parse_statement, Statement};
+use lang_syntax::{format_statement, parse_program, parse_statement};
 
 #[derive(Parser)]
 #[command(
@@ -25,9 +25,10 @@ enum Commands {
     Run,
     /// Type-check and execute declarations from a source file without producing build artifacts
     Check { input: PathBuf },
-    /// Build a program (currently validates only)
+    /// Build a program from a source directory into a binary artifact path
     Build {
-        input: PathBuf,
+        source: PathBuf,
+        output: PathBuf,
         #[arg(long)]
         release: bool,
     },
@@ -42,7 +43,11 @@ fn main() -> LangResult<()> {
     match cli.command {
         Commands::Run => run_repl(),
         Commands::Check { input } => check_file(&input),
-        Commands::Build { input, release } => build_program(&input, release),
+        Commands::Build {
+            source,
+            output,
+            release,
+        } => build_program(&source, &output, release),
         Commands::Fmt { input } => format_file(&input),
         Commands::Test { input } => test_program(&input),
     }
@@ -50,10 +55,14 @@ fn main() -> LangResult<()> {
 
 fn run_repl() -> LangResult<()> {
     let mut interpreter = Interpreter::new();
-
+    let mut buffer = String::new();
     let mut line = String::new();
     loop {
-        print!("lang> ");
+        if buffer.is_empty() {
+            print!("lang> ");
+        } else {
+            print!("....> ");
+        }
         io::stdout()
             .flush()
             .map_err(|err| LangError::Runtime(format!("failed to flush stdout: {err}")))?;
@@ -68,21 +77,36 @@ fn run_repl() -> LangResult<()> {
         }
 
         let raw = line.trim_end_matches(['\r', '\n']);
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
+        if buffer.is_empty() {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed == ":quit" || trimmed == ":exit" {
+                break;
+            }
+        }
+
+        buffer.push_str(raw);
+        buffer.push('\n');
+
+        if !statement_complete(&buffer) {
             continue;
         }
 
-        if trimmed == ":quit" || trimmed == ":exit" {
-            break;
+        let source = buffer.trim();
+        if source.is_empty() {
+            buffer.clear();
+            continue;
         }
 
-        match parse_statement(trimmed) {
+        match parse_statement(source) {
             Ok(statement) => match interpreter.execute(statement) {
-                Ok(Some(value)) => {
-                    println!("{}", echo(&value));
+                Ok(values) => {
+                    for value in values {
+                        println!("{}", echo(&value));
+                    }
                 }
-                Ok(None) => {}
                 Err(err) => {
                     eprintln!("error: {err}");
                 }
@@ -91,6 +115,7 @@ fn run_repl() -> LangResult<()> {
                 eprintln!("parse error: {err}");
             }
         }
+        buffer.clear();
     }
 
     Ok(())
@@ -98,24 +123,59 @@ fn run_repl() -> LangResult<()> {
 
 fn check_file(path: &Path) -> LangResult<()> {
     let source = read_source(path)?;
-    let statements = parse_program(&source)?;
+    let statements = parse_program(&source).map_err(|err| LangError::parse(err.to_string()))?;
     let mut interpreter = Interpreter::new();
     for statement in statements {
-        interpreter.execute(statement)?;
+        let _ = interpreter.execute(statement)?;
     }
     Ok(())
 }
 
-fn build_program(path: &Path, release: bool) -> LangResult<()> {
-    check_file(path)?;
+fn build_program(source: &Path, output: &Path, release: bool) -> LangResult<()> {
+    let files = collect_source_files(source)?;
+    if files.is_empty() {
+        return Err(LangError::Runtime(format!(
+            "no source files with .lang extension found in {}",
+            source.display()
+        )));
+    }
+
+    let mut interpreter = Interpreter::new();
+    let mut compiled = Vec::new();
+    for file in files {
+        let contents = read_source(&file)?;
+        let statements =
+            parse_program(&contents).map_err(|err| LangError::parse(err.to_string()))?;
+        for statement in statements {
+            compiled.push(format_statement(&statement));
+            let _ = interpreter.execute(statement)?;
+        }
+    }
+
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                LangError::Runtime(format!("failed to create {}: {err}", parent.display()))
+            })?;
+        }
+    }
+
+    fs::write(output, compiled.join("\n")).map_err(|err| {
+        LangError::Runtime(format!("failed to write {}: {err}", output.display()))
+    })?;
+
     let profile = if release { "release" } else { "dev" };
-    println!("build succeeded ({profile} mode)");
+    println!(
+        "built {} ({profile} mode) from {}",
+        output.display(),
+        source.display()
+    );
     Ok(())
 }
 
 fn format_file(path: &Path) -> LangResult<()> {
     let source = read_source(path)?;
-    let statements = parse_program(&source)?;
+    let statements = parse_program(&source).map_err(|err| LangError::parse(err.to_string()))?;
     let formatted: Vec<String> = statements.iter().map(format_statement).collect();
     fs::write(path, formatted.join("\n"))
         .map_err(|err| LangError::Runtime(format!("failed to write file: {err}")))?;
@@ -134,23 +194,66 @@ fn read_source(path: &Path) -> LangResult<String> {
         .map_err(|err| LangError::Runtime(format!("failed to read {}: {err}", path.display())))
 }
 
-fn parse_program(source: &str) -> LangResult<Vec<Statement>> {
-    let mut statements = Vec::new();
-    for chunk in split_statements(source)? {
-        let parsed = parse_statement(&chunk).map_err(|err| LangError::parse(err.to_string()))?;
-        statements.push(parsed);
+fn statement_complete(buffer: &str) -> bool {
+    let mut paren = 0i32;
+    let mut brace = 0i32;
+    let mut bracket = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut chars = buffer.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '\\' if in_single || in_double => {
+                chars.next();
+            }
+            '(' if !in_single && !in_double => paren += 1,
+            ')' if !in_single && !in_double => paren -= 1,
+            '{' if !in_single && !in_double => brace += 1,
+            '}' if !in_single && !in_double => brace -= 1,
+            '[' if !in_single && !in_double => bracket += 1,
+            ']' if !in_single && !in_double => bracket -= 1,
+            _ => {}
+        }
+        if paren < 0 || brace < 0 || bracket < 0 {
+            return true;
+        }
     }
-    Ok(statements)
+    !in_single
+        && !in_double
+        && paren == 0
+        && brace == 0
+        && bracket == 0
+        && !buffer.trim().is_empty()
 }
 
-fn split_statements(source: &str) -> LangResult<Vec<String>> {
-    let mut statements = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
+fn collect_source_files(dir: &Path) -> LangResult<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir)
+        .map_err(|err| LangError::Runtime(format!("failed to read {}: {err}", dir.display())))?
+    {
+        let entry = entry.map_err(|err| {
+            LangError::Runtime(format!(
+                "failed to access directory entry in {}: {err}",
+                dir.display()
+            ))
+        })?;
+        let path = entry.path();
+        if entry
+            .file_type()
+            .map_err(|err| LangError::Runtime(format!("failed to stat {}: {err}", path.display())))?
+            .is_dir()
+        {
+            files.extend(collect_source_files(&path)?);
+        } else if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("lang"))
+            .unwrap_or(false)
+        {
+            files.push(path);
         }
-        statements.push(trimmed.to_string());
     }
-    Ok(statements)
+    Ok(files)
 }

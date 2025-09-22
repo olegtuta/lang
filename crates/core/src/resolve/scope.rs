@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::diagnostics::{LangError, LangResult};
-use crate::types::registry::{PrimitiveType, TypeKind};
+use crate::types::registry::{ArrayType, PrimitiveType, TypeKind};
+use crate::types::value::ArrayKey;
 use crate::types::{LangType, Value};
 
 #[derive(Debug, Clone)]
@@ -36,18 +37,73 @@ impl BindingState {
 }
 
 fn ensure_compatible(expected: &LangType, value: &Value) -> LangResult<()> {
-    if matches!(expected.kind(), TypeKind::Primitive(PrimitiveType::Mixed)) {
-        return Ok(());
+    match expected.kind() {
+        TypeKind::Primitive(PrimitiveType::Mixed) => Ok(()),
+        TypeKind::Primitive(_) => ensure_kind_match(expected.kind(), value),
+        TypeKind::Array(array_type) => ensure_array_matches(array_type, value),
     }
+}
+
+fn ensure_kind_match(expected: &TypeKind, value: &Value) -> LangResult<()> {
     let value_type = value.ty();
-    if value_type.kind() != expected.kind() {
+    if value_type.kind() != expected {
         return Err(LangError::Type(format!(
             "type mismatch: expected {}, got {}",
-            expected.kind(),
+            expected,
             value_type.kind(),
         )));
     }
     Ok(())
+}
+
+fn ensure_array_matches(expected: &ArrayType, value: &Value) -> LangResult<()> {
+    match value {
+        Value::Array(array) => {
+            for (key, element) in array.iter() {
+                ensure_array_key(expected.key(), key)?;
+                ensure_value_kind(expected.value(), element)?;
+            }
+            Ok(())
+        }
+        other => Err(LangError::Type(format!(
+            "type mismatch: expected {}, got {}",
+            TypeKind::Array(expected.clone()),
+            other.ty().kind(),
+        ))),
+    }
+}
+
+fn ensure_array_key(expected: &TypeKind, key: &ArrayKey) -> LangResult<()> {
+    match expected {
+        TypeKind::Primitive(PrimitiveType::Mixed) => Ok(()),
+        TypeKind::Primitive(PrimitiveType::Integer) => match key {
+            ArrayKey::Int(_) => Ok(()),
+            _ => Err(LangError::Type(
+                "array key type mismatch: expected integer index".to_string(),
+            )),
+        },
+        TypeKind::Primitive(PrimitiveType::Str) => match key {
+            ArrayKey::Str(_) => Ok(()),
+            _ => Err(LangError::Type(
+                "array key type mismatch: expected string key".to_string(),
+            )),
+        },
+        TypeKind::Primitive(other) => Err(LangError::Type(format!(
+            "unsupported array key type {}",
+            other.as_str()
+        ))),
+        TypeKind::Array(_) => Err(LangError::Type(
+            "array keys cannot themselves be arrays".to_string(),
+        )),
+    }
+}
+
+fn ensure_value_kind(expected: &TypeKind, value: &Value) -> LangResult<()> {
+    match expected {
+        TypeKind::Primitive(PrimitiveType::Mixed) => Ok(()),
+        TypeKind::Primitive(_) => ensure_kind_match(expected, value),
+        TypeKind::Array(array_type) => ensure_array_matches(array_type, value),
+    }
 }
 
 #[derive(Debug, Default)]
